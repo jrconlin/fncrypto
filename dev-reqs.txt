@@ -1,0 +1,11 @@
+MoPyTools
+nose
+WebTest
+pyramid
+pbkdf2
+bitarray
+-e git://github.com/tahoe-lafs/pycryptopp.git#egg=pycryptopp
+-e git://github.com/mozilla-services/cornice.git#egg=cornice
+# cryptopy-1.2.5.tar.gz
+
+
