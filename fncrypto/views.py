@@ -9,6 +9,7 @@ from pyramid import httpexceptions as http
 
 encode = Service(name='encode', path='/encode/')
 decode = Service(name='decode', path='/decode/')
+guser = Service(name='guser', path='/user/')
 user = Service(name='user', path='/user/{uid}')
 
 #
@@ -65,32 +66,59 @@ def has_token_and_domain(request):
 def new_user(request):
     """ add a new user to the Storage """
     storage = request.registry['storage']
-    body = request.json_body
     crypto = Crypto(storage=storage)
-    uid = body.uid
+    uid = None
+    import pdb; pdb.set_trace()
+    try:
+        body = request.json_body
+    except ValueError, e:
+        body = {}
+        pass
+    if 'uid' in body:
+        uid = body.get('uid')
     if uid is None:
-        uid = os.urandom(256)
+        uid = os.urandom(256/8).encode('hex')
         while (uid in storage):
-            uid = os.urandom(256)
+            uid = os.urandom(256/8)
     if uid in storage:
-        return storage.get(body.uid)
-    info = crypto.generateKeyBundle(body.uid)
+        return storage.get(uid)
+    info = crypto.generateKeyBundle(uid)
     info.update({'uid': uid})
     storage[uid] = info
     return info
 
 @user.get()
+@guser.get()
 def get_user(request):
     storage = request.registry['storage']
-    body = request.json_body
-    uid = body.uid
-    return storage[uid]
+    import pdb; pdb.set_trace();
+    uid = None
+    if 'uid' in request.matchdict:
+        uid = request.matchdict.get('uid')
+    else:
+        try:
+            body = request.json_body
+            uid = body.uid
+        except ValueError, e:
+            import pdb; pdb.set_trace();
+            print e;
+            pass
+        except KeyError, e:
+            pass
+    if uid in storage:
+        return storage[uid]
+    return http.HTTPNotFound()
 
 @user.delete()
 def kill_user(request):
     storage = request.registry['storage']
-    body = request.json_body
-    del storage[body.uid]
+    try:
+        body = request.json_body
+        del storage[body.uid]
+    except ValueError, e:
+        pass
+    except KeyError, e:
+        pass
     return True
 
 #@user.put ?
