@@ -6,6 +6,7 @@
 """
 import base64
 import os
+import json
 import hashlib
 
 from pycryptopp.cipher import aes
@@ -27,12 +28,14 @@ class Crypto (object):
     appName = 'fnCrypto'
     HMAC_INPUT = appName + "-AES_256_CBC-HMAC256"
     bitSize = 256
+    keyBundle = None
 
     def __init__(self, storage=None):
         aes.start_up_self_test()
         if storage is not None:
             self.storage = storage
         else:
+            print "no storage defined"
             self.storage = {};
         self.syncKey = base64.b32encode(
                 os.urandom(self.bitSize / 8)).lower().replace('l', 
@@ -56,20 +59,23 @@ class Crypto (object):
         self.info = '%s%s' % (self.HMAC_INPUT, 
                 self.userToken.get('uid'))
         self.encryptionKey = hashlib.sha256('%s%s\01' % (
-                self.syncKey, self.info)).digest()
+                self.syncKey, self.info)).hexdigest()
         self.keyBundle = {'encryptionKey': self.encryptionKey,
             'hmac': hashlib.sha256('%s%s\02' % (self.encryptionKey,
-                self.info)).digest()}
+                self.info)).hexdigest()}
         #self.storage(uid, 'keyBundle', self.keyBundle)
         self.setUserToken(uid, self.keyBundle)
+        print "keybundle: %s\n%s\n" % (uid, json.dumps(self.keyBundle));
         return self.keyBundle
 
     def getKeyBundle(self, uid):
-        if self.keyBundle:
+        if self.keyBundle is not None:
             return self.keyBundle
         #fetch the keyBundle from "storage"
-        # else:
-        return self.generateKeyBundle(self, uid)
+        if uid in self.storage:
+            return self.storage[uid]
+        else:
+            return self.generateKeyBundle(uid)
 
     def encrypt(self, plaintext, uid=None, iv=None):
         """ encrypt a block of plaintext.
@@ -79,12 +85,12 @@ class Crypto (object):
             iv = os.urandom(16)
         if uid is None:
             uid = self.getUserToken().get('uid')
-        if not hasattr(self, 'keyBundle'):
-            self.getKeyBundle(uid)
+        if self.keyBundle is None:
+            self.keyBundle = self.getKeyBundle(uid)
         result = {'iv': base64.b64encode(iv)}
         result['cipherText'] = base64.b64encode(
                 aes.AES(key=hashlib.sha256('%s%s' % (
-                    self.keyBundle['encryptionKey'], 
+                    self.keyBundle['encryptionKey'].decode('hex'), 
                 iv)).digest()).process(plaintext))
         result['hmac'] = hashlib.sha256("%s%s" % (self.keyBundle['hmac'], 
             result['cipherText'])).hexdigest()
@@ -93,14 +99,14 @@ class Crypto (object):
     def decrypt(self, cryptBlock, uid=None):
         if uid is None:
             uid = self.getUserToken().get('uid')
-        if not hasattr(self, 'keyBundle'):
-            self.getKeyBundle(uid)
+        if self.keyBundle is None:
+            self.keyBundle = self.getKeyBundle(uid)
         localHmac = hashlib.sha256('%s%s' % (self.keyBundle['hmac'],
             cryptBlock['cipherText'])).hexdigest()
         if localHmac != cryptBlock['hmac']:
             raise CryptoException('Invalid HMAC')
         clearText = aes.AES(key=hashlib.sha256('%s%s' % (
-            self.keyBundle['encryptionKey'], 
+            self.keyBundle['encryptionKey'].decode('hex'), 
             base64.b64decode(cryptBlock['iv']))
             ).digest()).process(base64.b64decode(cryptBlock['cipherText']))
         return clearText

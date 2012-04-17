@@ -3,7 +3,8 @@
 """
 import os
 from cornice.service import Service
-from fncrypto.crypto import Crypto
+from fncrypto.crypto import (Crypto, CryptoException)
+from pyramid import httpexceptions as http
 
 
 encode = Service(name='encode', path='/encode/')
@@ -30,11 +31,11 @@ def encode(request):
     storage = request.registry['storage']
     crypto = Crypto(storage=storage)
     body = request.json_body
-    plaintext = request.json_body
+    plaintext = body.get('plaintext')
     if isinstance(plaintext, unicode):
         plaintext = plaintext.encode()
-    return crypto.encrypt(str(body.plaintext), 
-                uid = body.uid);
+    return crypto.encrypt(str(plaintext), 
+                uid = body.get('uid'));
 
 
 @decode.post()
@@ -45,7 +46,10 @@ def decode(request):
     storage = request.registry['storage']
     crypto = Crypto(storage=storage)
     body = request.json_body
-    plaintext = crypto.decrypt(body)
+    try:
+        plaintext = crypto.decrypt(body)
+    except CryptoException, e:
+        raise http.HTTPBadRequest(repr(e))
     return {'text': plaintext.encode('utf8')}
 
 
