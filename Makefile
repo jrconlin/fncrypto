@@ -8,4 +8,5 @@ all: build
 build:
 	$(VE) --no-site-packages .
 	$(PI) install -r dev-reqs.txt
+	$(PY) setup.py build
 
