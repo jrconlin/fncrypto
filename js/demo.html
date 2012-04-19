@@ -1,0 +1,186 @@
+<!doctype html>
+<html>
+<head>
+    <title>fnCrypto demo</title>
+    <link href="style.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+    <h1>fnCrypto demo</h1>
+    <div id="result"></div>
+    <script src="../sjcl/core.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+    <script language="javascript">
+
+
+        var bitSize = 256;
+        var myAppName = 'fnCryptoClient';
+
+        function randString(bitLen) {
+            // make a 128 bit name of crap.
+            var val="";
+            if (bitLen == undefined) {
+                bitLen = 128;
+            }
+            //var chars = sjcl.codec.base64._chars;
+            var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            var charsLen = chars.length;
+            for (var i=0; i < bitLen/8; i++) {
+                val += chars[Math.floor(Math.random() * charsLen)];
+            }
+            return val;
+        }
+
+        function newSyncKey() {
+            var bits = 0;
+            for (i = 0; i < bitSize; i++){
+                bits += Math.round(Math.random) * Math.pow(2, i);
+            }
+            syncKey = sjcl.codec.base64.fromBits(bits);
+            return syncKey;
+        }
+
+        function getStorage(key) {
+            if (key == undefined) {
+                key = 'crypto';
+            }
+            var storeInfo = sessionStorage.getItem(key);
+            if (storeInfo != undefined) {
+                storeInfo = JSON.parse(storeInfo);
+            }
+            return storeInfo;
+        }
+
+        function setStorage(key, info) {
+            sessionStorage.setItem(key, JSON.stringify(info));
+        }
+
+        // -- Public functions
+
+        /** retrieve/generate the "key bundle" for this site.
+
+        Key Bundle consists of an object containing:
+        "site" protocol:sitename of the originating site.
+        "encryptionKey": Encryption/Decryption key.
+        'hmac": HMAC value for signing the cipherText
+
+        Content is currently stored in localStorage. Key Bundle is private and
+        MUST NOT be shared.
+        */
+        function getKeyBundle(site) {
+            var keyBundle;
+            keyBundle = getStorage(site + '-kb')
+            if (keyBundle != undefined) {
+                return keyBundle
+            }
+            var info = myAppName + "-AES_256_CBC-HMAC256" + site;
+            var syncKey = newSyncKey();
+            var encryptionKey = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(syncKey + info + "\x01"));
+            var keyBundle = {'site': site,
+                'encryptionKey': encryptionKey,
+                'hmac': sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(encryptionKey + info + "\x02"))};
+            setStorage(site + '-kb', keyBundle);
+            return keyBundle;
+        }
+
+        function encrypt(site, plaintext, keyBundle, iv) {
+            if (plaintext == undefined) {
+                return;
+            }
+            if (site == undefined) {
+                site = 'localhost';
+            }
+            if (keyBundle == undefined) {
+                keyBundle = getKeyBundle(site);
+            }
+            //
+            if (iv == undefined) {
+                iv = sjcl.codec.base64.toBits(randString(32));
+            }
+            var key = sjcl.hash.sha256.hash(sjcl.codec.hex.fromBits(sjcl.codec.hex.toBits(keyBundle.encryptionKey).concat(iv)));
+            var aes = new sjcl.cipher.aes(key);
+            var cipherText = sjcl.codec.base64.fromBits(aes.encrypt(sjcl.codec.utf8String.toBits(plaintext)));
+            var hmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cipherText));
+            return {'iv': sjcl.codec.base64.fromBits(iv),
+                'cipherText': cipherText,
+                'hmac': hmac}
+        }
+
+        /** Decrypt content returned from an "encrypt" call.
+
+        @param site    protocol + host name for origin site.
+        @param cryptBlock the encrypted info
+        @param keyBundle optional keyBundle to use instead of the one stored for site
+
+        The cryptBlock is an object that contains the following:
+        { 'iv': base64 encoded Init Vector for this block.
+            'cipherText': base64 encoded, AES encrypted text
+            'hmac': HMAC for the cypherText derived from the keyBundle HMAC
+        }
+
+        @return an object containing:
+        {
+            'plainText': The UTF8 encoded string containing the decrypted content.
+        }
+
+        Notes:
+            decrypted content may be left padded with \x0 characters.
+            
+        */
+        function decrypt(site, cryptBlock, keyBundle) {
+            if (cryptBlock == undefined) {
+                return;
+            }
+            if (site == undefined) {
+                site = 'localhost';
+            }
+            if (keyBundle == undefined) {
+                keyBundle = getKeyBundle(site);
+            }
+            // check the hmac
+            var localmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cryptBlock.cipherText));
+            if (localmac != cryptBlock.hmac) {
+                throw Exception('bad mac');
+            }
+            var iv = sjcl.codec.base64.toBits(cryptBlock.iv);
+            var key = sjcl.hash.sha256.hash(sjcl.codec.hex.fromBits(sjcl.codec.hex.toBits(keyBundle.encryptionKey).concat(iv)));
+            var aes = new sjcl.cipher.aes(key);
+            var plainText = sjcl.codec.utf8String.fromBits(aes.decrypt(sjcl.codec.base64.toBits(cryptBlock.cipherText)));
+            return {'plainText': plainText}
+        }
+
+        // TODO: 
+        //   build register call
+        //   push pull test message.
+
+        function getSite(){
+            return document.location.protocol + document.location.host;
+        }
+
+        function isRegistered(site) {
+            return getStorage(site + '-kb') !=  undefined;
+        }
+        
+        $(document).ready(function() {
+            //            if (isRegistered(getSite())) {
+                var site = getSite();
+                var bundle = getKeyBundle(site);
+                console.debug('Begin test');
+                var pt = 'This is a test.';
+                var cb = encrypt(site, pt);
+                console.debug(cb);
+                var res = decrypt(site, cb);
+                console.debug(res);
+                console.debug(String.charCodeAt(res.text[15]));
+                document.getElementById('result').innerHTML = res.text;
+                // register the user with the site.
+                // Generate an encryption key and hmac
+                // generate a userID
+            // request a crypted message from the server
+                // send an encrypted request.
+                // display the encrypted response.
+
+        });
+
+    </script>
+</body>
+</html>

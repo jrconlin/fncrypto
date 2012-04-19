@@ -65,7 +65,6 @@ class Crypto (object):
                 self.info)).hexdigest()}
         #self.storage(uid, 'keyBundle', self.keyBundle)
         self.setUserToken(uid, self.keyBundle)
-        print "keybundle: %s\n%s\n" % (uid, json.dumps(self.keyBundle));
         return self.keyBundle
 
     def getKeyBundle(self, uid):
