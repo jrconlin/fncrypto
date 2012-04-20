@@ -35,8 +35,9 @@ def encode(request):
     plaintext = body.get('plaintext')
     if isinstance(plaintext, unicode):
         plaintext = plaintext.encode()
-    return crypto.encrypt(str(plaintext), 
-                uid = body.get('uid'));
+    return {'crypto': crypto.encrypt(str(plaintext), 
+                uid = body.get('uid')),
+              'keyBlock': crypto.getKeyBundle(crypto.getUserToken().get('uid'))}
 
 
 @decode.post()
@@ -68,7 +69,6 @@ def new_user(request):
     storage = request.registry['storage']
     crypto = Crypto(storage=storage)
     uid = None
-    import pdb; pdb.set_trace()
     try:
         body = request.json_body
     except ValueError, e:

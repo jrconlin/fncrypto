@@ -8,10 +8,24 @@
 </head>
 <body>
     <h1>fnCrypto demo</h1>
+    <h2>Source:</h2>
+    <textarea id="source">This is a test.</textarea>
+    <button id="encrypt">Encrypt</button>
+    <h2>Encrypted:</h2>
+    <textarea id="encrypted"></textarea>
+    <textarea id="keyBundle"></textarea>
+    <button id="decrypt">Decrypt</button>
+    <h2>Result:</h2>
     <div id="result"></div>
     <script src="../sjcl/core.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
     <script language="javascript">
+
+    function FNCryptoException(message) {
+            this.message = message;
+    }
+
+    FNCryptoException.prototype = new(Error);
 
     function FNCrypto() {
         var self = this;
@@ -44,7 +58,7 @@
 
         self._getStorage = function(key) {
             if (key == undefined) {
-                key = 'crypto';
+                key = self._getSite() + '-kb';
             }
             var storeInfo = sessionStorage.getItem(key);
             if (storeInfo != undefined) {
@@ -56,6 +70,12 @@
         self._setStorage = function(key, info) {
             sessionStorage.setItem(key, JSON.stringify(info));
         }
+
+        self._getSite = function(){
+            return document.location.protocol + document.location.host;
+        }
+
+        self._chunker
 
         // -- Public functions
 
@@ -71,6 +91,9 @@
         */
         self.getKeyBundle = function(site) {
             var keyBundle;
+            if (site == undefined) {
+                site = self._getSite();
+            }
             keyBundle = self._getStorage(site + '-kb')
             if (keyBundle != undefined) {
                 return keyBundle
@@ -87,10 +110,10 @@
 
         self.encrypt = function(plainText, site, keyBundle, iv) {
             if (plainText == undefined) {
-                throw Exception('nothing to encrypt');
+                throw new FNCryptoException('nothing to encrypt');
             }
             if (site == undefined) {
-                site = self.getSite();
+                site = self._getSite();
             }
             if (keyBundle == undefined) {
                 keyBundle = self.getKeyBundle(site);
@@ -101,7 +124,21 @@
             }
             var key = sjcl.hash.sha256.hash(sjcl.codec.hex.fromBits(sjcl.codec.hex.toBits(keyBundle.encryptionKey).concat(iv)));
             var aes = new sjcl.cipher.aes(key);
-            var cipherText = sjcl.codec.base64.fromBits(aes.encrypt(sjcl.codec.utf8String.toBits(plainText)));
+            var ptArray = sjcl.codec.utf8String.toBits(plainText);
+            // bring the array to a 4 byte boundry
+            if (ptArray.length % 4 != 0) {
+                ptArray.concat([0,0,0].splice(0,ptArray.length % 4));
+            }
+            var ptArrayLen = ptArray.length;
+            console.debug(ptArrayLen);
+            var bag = [];
+            for (var i=0;i<ptArrayLen; i+=4) {
+                var items = ptArray.splice(0,4);
+                console.debug(i, items);
+                aes.encrypt(items).forEach(function(v){bag.push(v)});
+                console.debug(bag);
+            }
+            var cipherText = sjcl.codec.base64.fromBits(bag);
             var hmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cipherText));
             return {'iv': sjcl.codec.base64.fromBits(iv),
                 'cipherText': cipherText,
@@ -125,16 +162,13 @@
             'plainText': The UTF8 encoded string containing the decrypted content.
         }
 
-        Notes:
-            decrypted content may be left padded with \x0 characters.
-            
         */
         self.decrypt = function(cryptBlock, site, keyBundle) {
             if (cryptBlock == undefined) {
                 return;
             }
             if (site == undefined) {
-                site = self.getSite();
+                site = self._getSite();
             }
             if (keyBundle == undefined) {
                 keyBundle = self.getKeyBundle(site);
@@ -142,41 +176,57 @@
             // check the hmac
             var localmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cryptBlock.cipherText));
             if (localmac != cryptBlock.hmac) {
-                throw Exception('bad mac');
+                throw new FNCryptoException('bad mac');
             }
             var iv = sjcl.codec.base64.toBits(cryptBlock.iv);
             var key = sjcl.hash.sha256.hash(sjcl.codec.hex.fromBits(sjcl.codec.hex.toBits(keyBundle.encryptionKey).concat(iv)));
             var aes = new sjcl.cipher.aes(key);
             // Nulls can appear at the end of strings as padding. Strip those
-            var plainText = sjcl.codec.utf8String.fromBits(aes.decrypt(sjcl.codec.base64.toBits(cryptBlock.cipherText))).  replace(/\x00*$/, '');
+            var ptArray = sjcl.codec.base64.toBits(cryptBlock.cipherText);
+            if (ptArray.length % 4 != 0) {
+                ptArray.concat([0,0,0].splice(0,ptArray.length % 4));
+            }
+            var ptArrayLen = ptArray.length;
+            var bag = [];
+            for (var i=0; i < ptArrayLen; i += 4) {
+                var items = ptArray.splice(0,4);
+                aes.decrypt(items).forEach(function(v){bag.push(v)});
+            }
+            var plainText = sjcl.codec.utf8String.fromBits(bag).replace(/\x00*$/, '');
             return {'plainText': plainText}
-        }
-
-        // TODO: 
-        //   build register call
-        //   push pull test message.
-
-        self.getSite = function(){
-            return document.location.protocol + document.location.host;
         }
 
         function isRegistered(site) {
             return self._getStorage(site + '-kb') !=  undefined;
         }
 
+        // TODO: 
+        //   build register call
+        //   push pull test message.
+
     }
         
     $(document).ready(function() {
         var crypt = new FNCrypto();
-        var plainText = 'This is a test.';
+        $("#encrypt").click(function() {
+            var plainText = $('#source').val();
 
-        // Test: crypt and decrypt a block.
-        var cryptoBlock = crypt.encrypt(plainText);
-        console.debug(cryptoBlock);
-        var response = crypt.decrypt(cryptoBlock);
-        console.debug(response);
-        console.debug(response.plainText == plainText);
-        document.getElementById('result').innerHTML = response.plainText;
+            // Test: crypt and decrypt a block.
+            var cryptoBlock = crypt.encrypt(plainText);
+            $('#encrypted').val(JSON.stringify(cryptoBlock));
+            // display key bundle for debugging reasons.
+            $('#keyBundle').val(JSON.stringify(crypt._getStorage()));
+        });
+        $("#decrypt").click(function(){
+            var cryptoBlock = JSON.parse($('#encrypted').val());
+            var keyBundle = JSON.parse($('#keyBundle').val());
+            try {
+                var response = crypt.decrypt(cryptoBlock, undefined, keyBundle);
+                $('#result').html(response.plainText);
+            } catch(e) {
+                console.error(e);
+            }
+        });
         // register the user with the site.
         // Generate an encryption key and hmac
         // generate a userID
