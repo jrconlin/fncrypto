@@ -6,7 +6,6 @@
 """
 import base64
 import os
-import json
 import hashlib
 
 from pycryptopp.cipher import aes
@@ -76,12 +75,14 @@ class Crypto (object):
         else:
             return self.generateKeyBundle(uid)
 
-    def encrypt(self, plaintext, uid=None, iv=None):
+    def encrypt(self, plaintext, uid=None, site=None, iv=None):
         """ encrypt a block of plaintext.
         note: uid = unique identifier (possibly user id + site id)
         """
         if iv is None:
             iv = os.urandom(16)
+        if site is None:
+            site = 'localhost'
         if uid is None:
             uid = self.getUserToken().get('uid')
         if self.keyBundle is None:
@@ -91,17 +92,18 @@ class Crypto (object):
                 aes.AES(key=hashlib.sha256('%s%s' % (
                     self.keyBundle['encryptionKey'].decode('hex'), 
                 iv)).digest()).process(plaintext))
-        result['hmac'] = hashlib.sha256("%s%s" % (self.keyBundle['hmac'], 
-            result['cipherText'])).hexdigest()
+        result['hmac'] = hashlib.sha256("%s%s%s" % (self.keyBundle['hmac'], 
+            result['cipherText'], site)).hexdigest()
+        result['site'] = site
         return result
 
-    def decrypt(self, cryptBlock, uid=None):
+    def decrypt(self, cryptBlock, uid=None ):
         if uid is None:
             uid = self.getUserToken().get('uid')
         if self.keyBundle is None:
             self.keyBundle = self.getKeyBundle(uid)
-        localHmac = hashlib.sha256('%s%s' % (self.keyBundle['hmac'],
-            cryptBlock['cipherText'])).hexdigest()
+        localHmac = hashlib.sha256('%s%s%s' % (self.keyBundle['hmac'],
+            cryptBlock['cipherText'], cryptBlock['site'])).hexdigest()
         if localHmac != cryptBlock['hmac']:
             raise CryptoException('Invalid HMAC')
         clearText = aes.AES(key=hashlib.sha256('%s%s' % (
