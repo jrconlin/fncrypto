@@ -6,7 +6,7 @@
 
     FNCryptoException.prototype = new(Error);
 
-    function FNCrypto() {
+    var FNCrypto = function() {
         var self = this;
 
         // Encryption bit size (higher is better)
@@ -214,5 +214,12 @@
          */
         function isRegistered(site) {
             return self._getStorage(site + '-kb') !=  undefined;
+        }
+
+        return {
+            encrypt: this.encrypt,
+            decrypt: this.decrypt,
+            getKeyBundle: this.getKeyBundle,
+            isRegistered: this.isRegistered
         }
     }
