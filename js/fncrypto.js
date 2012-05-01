@@ -34,10 +34,10 @@
             return val;
         }
 
-        /** Generate a site key 
+        /** Generate a url key 
          *
          */
-        self._newSiteKey = function() {
+        self._newURLKey = function() {
             var bits = 0;
             return Math.round(Math.random() * Math.pow(2, self._bitSize));
         }
@@ -48,7 +48,7 @@
          */
         self._getStorage = function(key) {
             if (key == undefined) {
-                key = self._getSite() + '-kb';
+                key = self._getURL() + '-kb';
             }
             var storeInfo = sessionStorage.getItem(key);
             if (storeInfo != undefined) {
@@ -61,62 +61,69 @@
             sessionStorage.setItem(key, JSON.stringify(info));
         }
 
-        self._getSite = function(){
+        self._getURL = function(){
             return document.location.protocol + document.location.host;
         }
 
         // -- Public functions
         // Effort will be made to keep these functions stable across the current Major version.
 
-        /** retrieve/generate the "key bundle" for this site.
+        /** retrieve/generate the "key bundle" for this url.
          *
-         * @param site The site name (e.g. 'example.com') This is used as a key by the client
+         * @param url The url name (e.g. 'example.com') This is used as a key by the client
          *
          * Key Bundle consists of an object containing:
-         *    "site" protocol:sitename of the originating site.
+         *    "url" protocol:urlname of the originating url.
          *    "encryptionKey": Encryption/Decryption key.
          *    "hmac": HMAC value for signing the cipherText
          *
          * Content is currently stored in localStorage. Key Bundle is private and
          * MUST NOT be shared.
          */
-        self.getKeyBundle = function(site) {
+        self.getKeyBundle = function(url) {
+            console.info('getting key bundle for ' + url);
             var keyBundle;
-            if (site == undefined) {
-                site = self._getSite();
+            if (url == undefined) {
+                url = self._getURL();
             }
-            keyBundle = self._getStorage(site + '-kb')
+            keyBundle = self._getStorage(url + '-kb')
             if (keyBundle != undefined) {
                 return keyBundle
             }
-            var info = self._myAppName + "-AES_256_CBC-HMAC256" + site;
-            var siteKey = self._newSiteKey();
-            var encryptionKey = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(siteKey + info + "\x01"));
-            var keyBundle = {'site': site,
+            var info = self._myAppName + "-AES_256_CBC-HMAC256" + url;
+            var urlKey = self._newURLKey();
+            var encryptionKey = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(urlKey + info + "\x01"));
+            var keyBundle = {'url': url,
                 'encryptionKey': encryptionKey,
                 'hmac': sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(encryptionKey + info + "\x02"))};
-            self._setStorage(site + '-kb', keyBundle);
+            console.info("Setting storage ", url + '-kb', JSON.stringify(keyBundle))
+            self._setStorage(url + '-kb', keyBundle);
             return keyBundle;
         }
 
         /** encrypt a plaintext string
          *
          * @param plaintext   the plaintext string to encrypt
-         * @param site        site name (used as a key for client decryption
+         * @param url        url name (used as a key for client decryption
          * @param keyBundle   secret key bundle to encrypt the content
          * @param iv          optional Initialization Vector for encryption
          *
          * @return a cryptoBlock structure
          */
-        self.encrypt = function(plainText, site, keyBundle, iv) {
+        self.encrypt = function(plainText, keyBundle, iv) {
+            var url;
             if (plainText == undefined) {
                 throw new FNCryptoException('nothing to encrypt');
             }
-            if (site == undefined) {
-                site = self._getSite();
-            }
             if (keyBundle == undefined) {
-                keyBundle = self.getKeyBundle(site);
+                // if we don't have a key bundle, we don't have a url or url. 
+                keyBundle = self.getKeyBundle(self._getURL());
+            }
+            if (keyBundle.hasOwnProperty('url')) {
+                url = keyBundle.url;
+            } else {
+                console.warn('generating url');
+                url = self._getURL();
             }
             // generate a new IV if one wasn't provided.
             if (iv == undefined) {
@@ -140,18 +147,21 @@
                 }
             }
             var cipherText = sjcl.codec.base64.fromBits(bag);
-            var hmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cipherText + site));
-            return {'iv': sjcl.codec.base64.fromBits(iv),
+            console.info('encrypt url:', url);
+            var hmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cipherText + url));
+            var result = {'iv': sjcl.codec.base64.fromBits(iv),
                 'cipherText': cipherText,
-                'site': site,
-                'hmac': hmac}
+                'url': url,
+                'hmac': hmac};
+            console.info('encrypt result: ', JSON.stringify(result));
+            return result;
         }
 
         /** Decrypt content returned from an "encrypt" call.
          *
-         * @param site    protocol + host name for origin site.
+         * @param url    protocol + host name for origin url.
          * @param cryptBlock the encrypted info
-         * @param keyBundle optional keyBundle to use instead of the one stored for site
+         * @param keyBundle optional keyBundle to use instead of the one stored for url
          * 
          * The cryptBlock is an object that contains the following:
          * { 'iv': base64 encoded Init Vector for this block.
@@ -165,22 +175,21 @@
          * }
          *
          */
-        self.decrypt = function(cryptBlock, site, keyBundle) {
+        self.decrypt = function(cryptBlock, keyBundle) {
             if (cryptBlock == undefined) {
                 return undefined;
             }
-            if (site == undefined) {
-                if (cryptBlock.hasOwnProperty('site')) {
-                    site = cryptBlock.site;
-                } else {
-                    site = self._getSite();
-                }
+            if (cryptBlock.hasOwnProperty('url')) {
+                url = cryptBlock.url;
+            } else {
+                url = self._getURL();
             }
             if (keyBundle == undefined) {
-                keyBundle = self.getKeyBundle(site);
+                keyBundle = self.getKeyBundle(url);
             }
             // check the hmac
-            var localmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cryptBlock.cipherText + site));
+            console.info('decrypt url:', url);
+            var localmac = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(keyBundle.hmac + cryptBlock.cipherText + url));
             if (localmac != cryptBlock.hmac) {
                 throw new FNCryptoException('bad mac');
             }
@@ -208,12 +217,12 @@
             return {'plainText': plainText}
         }
 
-        /** Have we registered a key bundle for this site?
+        /** Have we registered a key bundle for this url?
          *
-         * @param site   site name
+         * @param url   url name
          */
-        function isRegistered(site) {
-            return self._getStorage(site + '-kb') !=  undefined;
+        function isRegistered(url) {
+            return self._getStorage(url + '-kb') !=  undefined;
         }
 
         return {

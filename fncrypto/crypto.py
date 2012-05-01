@@ -41,16 +41,23 @@ class Crypto (object):
                         '8').replace('o', '9')
 
     def getUserToken(self, uid=0):
-        token = self.storage.get(uid, {'uid': uid})
+        token = self.storage.get(uid, {'uid': uid,
+            'url': 'http://localhost'})
         #fetch user token from tokenServer:/1.0/fncrypto/1.0
         return token
 
-    def setUserToken(self, uid=0, info={}):
+    def setUserToken(self, uid=0, info=None):
         info.update({'uid': uid})
         self.storage[uid] = info
         return self.storage[uid]
 
     def generateKeyBundle(self, uid=None):
+        """NOTE: The key bundle *should* come from the client. Any 
+        key bundle generated here will not work on the client.
+
+        This is included for both example and testing.
+        """
+        #logger.warn("Using internal key bundle gnerator")
         if uid is None:
             uid = self.getUserToken().get('uid')
         if not hasattr(self, 'userToken'):
@@ -59,9 +66,11 @@ class Crypto (object):
                 self.userToken.get('uid'))
         self.encryptionKey = hashlib.sha256('%s%s\01' % (
                 self.syncKey, self.info)).hexdigest()
+        # The url *should* come from the client.
         self.keyBundle = {'encryptionKey': self.encryptionKey,
             'hmac': hashlib.sha256('%s%s\02' % (self.encryptionKey,
-                self.info)).hexdigest()}
+                self.info)).hexdigest(),
+            'url': 'http://localhost'}
         #self.storage(uid, 'keyBundle', self.keyBundle)
         self.setUserToken(uid, self.keyBundle)
         return self.keyBundle
@@ -75,39 +84,40 @@ class Crypto (object):
         else:
             return self.generateKeyBundle(uid)
 
-    def encrypt(self, plaintext, uid=None, site=None, iv=None):
-        """ encrypt a block of plaintext.
-        note: uid = unique identifier (possibly user id + site id)
+    def encrypt(self, plaintext, keyBundle):
+        """ 
+        encrypt a block of plaintext.
+
+        @param plaintext plaintext string to encrypt
+        @param keyBundle stored key information provided from the client.
+
+        @return an encrypted message block
         """
-        if iv is None:
-            iv = os.urandom(16)
-        if site is None:
-            site = 'localhost'
-        if uid is None:
-            uid = self.getUserToken().get('uid')
-        if self.keyBundle is None:
-            self.keyBundle = self.getKeyBundle(uid)
+        iv = os.urandom(16)
         result = {'iv': base64.b64encode(iv)}
         result['cipherText'] = base64.b64encode(
                 aes.AES(key=hashlib.sha256('%s%s' % (
                     self.keyBundle['encryptionKey'].decode('hex'), 
                 iv)).digest()).process(plaintext))
         result['hmac'] = hashlib.sha256("%s%s%s" % (self.keyBundle['hmac'], 
-            result['cipherText'], site)).hexdigest()
-        result['site'] = site
+            result['cipherText'], self.keyBundle['url'])).hexdigest()
         return result
 
-    def decrypt(self, cryptBlock, uid=None ):
-        if uid is None:
-            uid = self.getUserToken().get('uid')
-        if self.keyBundle is None:
-            self.keyBundle = self.getKeyBundle(uid)
-        localHmac = hashlib.sha256('%s%s%s' % (self.keyBundle['hmac'],
-            cryptBlock['cipherText'], cryptBlock['site'])).hexdigest()
+    def decrypt(self, cryptBlock, keyBundle):
+        """
+        decrypt an encrypted message block
+
+        @param cryptBlock dict containing encrypted variables
+        @param keyBundle stored key information provided from the client
+
+        @return the cleartext content of the message.
+        """
+        localHmac = hashlib.sha256('%s%s%s' % (keyBundle['hmac'],
+            cryptBlock['cipherText'], keyBundle['url'])).hexdigest()
         if localHmac != cryptBlock['hmac']:
             raise CryptoException('Invalid HMAC')
         clearText = aes.AES(key=hashlib.sha256('%s%s' % (
-            self.keyBundle['encryptionKey'].decode('hex'), 
+            keyBundle['encryptionKey'].decode('hex'), 
             base64.b64decode(cryptBlock['iv']))
             ).digest()).process(base64.b64decode(cryptBlock['cipherText']))
         return clearText
@@ -116,8 +126,10 @@ class Crypto (object):
 if __name__ == '__main__':
     crypto = Crypto()
     testPhrase = 'This is a test'
+    # The key bundle normally comes from the client. 
+    # Generate a fake one for this test
     kb = crypto.generateKeyBundle()
-    block = crypto.encrypt(testPhrase)
-    response = crypto.decrypt(block)
+    block = crypto.encrypt(testPhrase, kb)
+    response = crypto.decrypt(block, kb)
     assert(response == testPhrase)
     print 'ok'
