@@ -10,11 +10,11 @@ import hashlib
 
 from pycryptopp.cipher import aes
 
-class CryptoException (Exception):
+class FNCryptoException (Exception):
     pass
 
 
-class Crypto (object):
+class FNCrypto (object):
 
     defaults = {'v': 1,
             'iter': 1000,
@@ -115,7 +115,7 @@ class Crypto (object):
         localHmac = hashlib.sha256('%s%s%s' % (keyBundle['hmac'],
             cryptBlock['cipherText'], keyBundle['url'])).hexdigest()
         if localHmac != cryptBlock['hmac']:
-            raise CryptoException('Invalid HMAC')
+            raise FNCryptoException('Invalid HMAC')
         clearText = aes.AES(key=hashlib.sha256('%s%s' % (
             keyBundle['encryptionKey'].decode('hex'), 
             base64.b64decode(cryptBlock['iv']))
@@ -124,7 +124,7 @@ class Crypto (object):
 
 
 if __name__ == '__main__':
-    crypto = Crypto()
+    crypto = FNCrypto()
     testPhrase = 'This is a test'
     # The key bundle normally comes from the client. 
     # Generate a fake one for this test

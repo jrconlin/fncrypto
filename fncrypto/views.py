@@ -3,7 +3,7 @@
 """
 import os
 from cornice.service import Service
-from fncrypto.crypto import (Crypto, CryptoException)
+from fncrypto.crypto import (FNCrypto, FNCryptoException)
 from pyramid import httpexceptions as http
 
 
@@ -30,7 +30,7 @@ def encode(request):
            'plaintext': PlainTextContent
     """
     storage = request.registry['storage']
-    crypto = Crypto(storage=storage)
+    crypto = FNCrypto(storage=storage)
     body = request.json_body
     plaintext = body.get('plaintext')
     if isinstance(plaintext, unicode):
@@ -46,11 +46,11 @@ def decode(request):
     Decode a given block using the keys stored for UID
     """
     storage = request.registry['storage']
-    crypto = Crypto(storage=storage)
+    crypto = FNCrypto(storage=storage)
     body = request.json_body
     try:
         plaintext = crypto.decrypt(body)
-    except CryptoException, e:
+    except FNCryptoException, e:
         raise http.HTTPBadRequest(repr(e))
     return {'text': plaintext.encode('utf8')}
 
@@ -67,7 +67,7 @@ def has_token_and_domain(request):
 def new_user(request):
     """ add a new user to the Storage """
     storage = request.registry['storage']
-    crypto = Crypto(storage=storage)
+    crypto = FNCrypto(storage=storage)
     uid = None
     try:
         body = request.json_body
