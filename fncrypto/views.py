@@ -1,3 +1,6 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
 """
     Main dispatch for request processing
 """
@@ -6,21 +9,12 @@ from cornice.service import Service
 from fncrypto.crypto import (FNCrypto, FNCryptoException)
 from pyramid import httpexceptions as http
 
-
+# path definitions.
 encode = Service(name='encode', path='/encode/')
 decode = Service(name='decode', path='/decode/')
 guser = Service(name='guser', path='/user/')
 user = Service(name='user', path='/user/{uid}')
 
-#
-#def has_keys_and_notification(request):
-#    """Non-empty keys and notification values must be give in the POST body."""
-#    for key in ('keys', 'notification'):
-#        if not request.POST.get(key):
-#            return 400, 'Missing required argument: ' + key
-
-
-#@encode.post(validators=has_keys_and_notification)
 @encode.post()
 def encode(request):
     """
@@ -37,7 +31,8 @@ def encode(request):
         plaintext = plaintext.encode()
     return {'crypto': crypto.encrypt(str(plaintext), 
                 uid = body.get('uid')),
-              'keyBlock': crypto.getKeyBundle(crypto.getUserToken().get('uid'))}
+              'keyBlock': crypto.getKeyBundle(
+                  crypto.getUserToken().get('uid'))}
 
 
 @decode.post()
@@ -62,7 +57,15 @@ def has_token_and_domain(request):
             return 400, 'Missing required argument: ' + key
 
 
-#Add authentication to these.
+# Fake user functions. 
+# Obviously, these really ought to be using something like BrowserID
+# or your own user login functions in order to create a unique ID 
+# for a given user. If you're not interested in doing user login, 
+# the following will work fine, but again, you probably want to make
+# the storage something a bit more durable than an in memory hash.
+# 
+# Hey, demo app. I can cut corners. 
+#
 @user.post()
 def new_user(request):
     """ add a new user to the Storage """
@@ -77,8 +80,10 @@ def new_user(request):
     if 'uid' in body:
         uid = body.get('uid')
     if uid is None:
+        # generate a 256bit random fake UID.
         uid = os.urandom(256/8).encode('hex')
         while (uid in storage):
+            # that's unique. 
             uid = os.urandom(256/8)
     if uid in storage:
         return storage.get(uid)
@@ -91,7 +96,6 @@ def new_user(request):
 @guser.get()
 def get_user(request):
     storage = request.registry['storage']
-    import pdb; pdb.set_trace();
     uid = None
     if 'uid' in request.matchdict:
         uid = request.matchdict.get('uid')
@@ -100,7 +104,6 @@ def get_user(request):
             body = request.json_body
             uid = body.uid
         except ValueError, e:
-            import pdb; pdb.set_trace();
             print e;
             pass
         except KeyError, e:
@@ -120,6 +123,4 @@ def kill_user(request):
     except KeyError, e:
         pass
     return True
-
-#@user.put ?
 

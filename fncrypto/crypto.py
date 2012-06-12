@@ -1,14 +1,21 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
 """Note: pycryptopp does not install properly. The actual repository is under
     ./src/pycryptopp/src/pycryptopp. This can be fixed by adding a symlink.
     ln -s ./src/pycryptopp/src/pycryptopp ./src/pycryptopp/pycryptopp
 
-    Investigating other options.
 """
 import base64
 import os
 import hashlib
+import sys
 
+# Using pycryptopp here because it has very low dependencies. You don't
+# NEED to use it, and in fact, I'd strongly encourage you to use M2Crypto
+# or some other library that uses OpenSSH or like AES provider.
 from pycryptopp.cipher import aes
+
 
 class FNCryptoException (Exception):
     pass
@@ -16,31 +23,32 @@ class FNCryptoException (Exception):
 
 class FNCrypto (object):
 
-    defaults = {'v': 1,
-            'iter': 1000,
-            'ks': 256,
-            'ts': 64,
-            'mode': 'ccm',
-            'adata': '',
-            'cipher': 'aes'}
-
+    # While not strictly necessary, you may want to change this value. This
+    # will alter the HMAC_INPUT seed value.
     appName = 'fnCrypto'
     HMAC_INPUT = appName + "-AES_256_CBC-HMAC256"
     bitSize = 256
     keyBundle = None
 
     def __init__(self, storage=None):
+        """ initialize the crypto functions if need be.
+
+        @arg storage "dict" like storage.
+        """
         aes.start_up_self_test()
         if storage is not None:
             self.storage = storage
         else:
-            print "no storage defined"
-            self.storage = {};
+            sys.stderr.write("WARNING: no storage defined")
+            self.storage = {}
         self.syncKey = base64.b32encode(
-                os.urandom(self.bitSize / 8)).lower().replace('l', 
+                os.urandom(self.bitSize / 8)).lower().replace('l',
                         '8').replace('o', '9')
 
     def getUserToken(self, uid=0):
+        """ Get information associated with the user's ID.
+            AKA, their token.
+        """
         token = self.storage.get(uid, {'uid': uid,
             'url': 'http://localhost'})
         #fetch user token from tokenServer:/1.0/fncrypto/1.0
@@ -52,7 +60,7 @@ class FNCrypto (object):
         return self.storage[uid]
 
     def generateKeyBundle(self, uid=None):
-        """NOTE: The key bundle *should* come from the client. Any 
+        """NOTE: The key bundle *should* come from the client. Any
         key bundle generated here will not work on the client.
 
         This is included for both example and testing.
@@ -62,7 +70,7 @@ class FNCrypto (object):
             uid = self.getUserToken().get('uid')
         if not hasattr(self, 'userToken'):
             self.userToken = self.getUserToken(uid)
-        self.info = '%s%s' % (self.HMAC_INPUT, 
+        self.info = '%s%s' % (self.HMAC_INPUT,
                 self.userToken.get('uid'))
         self.encryptionKey = hashlib.sha256('%s%s\01' % (
                 self.syncKey, self.info)).hexdigest()
@@ -85,7 +93,7 @@ class FNCrypto (object):
             return self.generateKeyBundle(uid)
 
     def encrypt(self, plaintext, keyBundle):
-        """ 
+        """
         encrypt a block of plaintext.
 
         @param plaintext plaintext string to encrypt
@@ -93,14 +101,26 @@ class FNCrypto (object):
 
         @return an encrypted message block
         """
+        ## The initialization vector,
         iv = os.urandom(16)
+        # This will need to be sent to the client to decrypt.
         result = {'iv': base64.b64encode(iv)}
+        # encode the text:
+        # in long form:
+        # key = sha256 (encryptionKey in hex + iv)
+        # cipherText = aes(key=key).process(plainText)
+        # result['cipherText'] = base64 encoded cipherText
         result['cipherText'] = base64.b64encode(
                 aes.AES(key=hashlib.sha256('%s%s' % (
-                    self.keyBundle['encryptionKey'].decode('hex'), 
+                    self.keyBundle['encryptionKey'].decode('hex'),
                 iv)).digest()).process(plaintext))
-        result['hmac'] = hashlib.sha256("%s%s%s" % (self.keyBundle['hmac'], 
+        # Generate the hmac as a hex version of the sha256 of the keyBundle's
+        # HMAC, the b64 encoded cipherText we just generated, and the
+        # keyBundle's source URL.
+        result['hmac'] = hashlib.sha256("%s%s%s" % (self.keyBundle['hmac'],
             result['cipherText'], self.keyBundle['url'])).hexdigest()
+        # And return that base structure. This is the "cryptoBlock"
+        # inclusion to the POST data sent to the Notification URL.
         return result
 
     def decrypt(self, cryptBlock, keyBundle):
@@ -117,7 +137,7 @@ class FNCrypto (object):
         if localHmac != cryptBlock['hmac']:
             raise FNCryptoException('Invalid HMAC')
         clearText = aes.AES(key=hashlib.sha256('%s%s' % (
-            keyBundle['encryptionKey'].decode('hex'), 
+            keyBundle['encryptionKey'].decode('hex'),
             base64.b64decode(cryptBlock['iv']))
             ).digest()).process(base64.b64decode(cryptBlock['cipherText']))
         return clearText
@@ -126,7 +146,7 @@ class FNCrypto (object):
 if __name__ == '__main__':
     crypto = FNCrypto()
     testPhrase = 'This is a test'
-    # The key bundle normally comes from the client. 
+    # The key bundle normally comes from the client.
     # Generate a fake one for this test
     kb = crypto.generateKeyBundle()
     block = crypto.encrypt(testPhrase, kb)
