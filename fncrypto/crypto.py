@@ -11,10 +11,10 @@ import os
 import hashlib
 import sys
 
-# Using pycryptopp here because it has very low dependencies. You don't
-# NEED to use it, and in fact, I'd strongly encourage you to use M2Crypto
-# or some other library that uses OpenSSH or like AES provider.
-from pycryptopp.cipher import aes
+from M2Crypto import EVP
+import cStringIO
+
+import binascii
 
 
 class FNCryptoException (Exception):
@@ -35,11 +35,11 @@ class FNCrypto (object):
 
         @arg storage "dict" like storage.
         """
-        aes.start_up_self_test()
+        #aes.start_up_self_test()
         if storage is not None:
             self.storage = storage
         else:
-            sys.stderr.write("WARNING: no storage defined")
+            sys.stderr.write("WARNING: no storage defined\n")
             self.storage = {}
         self.syncKey = base64.b32encode(
                 os.urandom(self.bitSize / 8)).lower().replace('l',
@@ -94,7 +94,7 @@ class FNCrypto (object):
 
     def encrypt(self, plaintext, keyBundle):
         """
-        encrypt a block of plaintext.
+        encrypt a block of plaintext using 256bit AES with ecb.
 
         @param plaintext plaintext string to encrypt
         @param keyBundle stored key information provided from the client.
@@ -104,21 +104,41 @@ class FNCrypto (object):
         ## The initialization vector,
         iv = os.urandom(16)
         # This will need to be sent to the client to decrypt.
-        result = {'iv': base64.b64encode(iv)}
+        result = {'iv': binascii.b2a_base64(iv)}
         # encode the text:
         # in long form:
         # key = sha256 (encryptionKey in hex + iv)
         # cipherText = aes(key=key).process(plainText)
         # result['cipherText'] = base64 encoded cipherText
-        result['cipherText'] = base64.b64encode(
-                aes.AES(key=hashlib.sha256('%s%s' % (
-                    self.keyBundle['encryptionKey'].decode('hex'),
-                iv)).digest()).process(plaintext))
+        keyCore = '%s%s' % (
+                keyBundle['encryptionKey'].decode('hex'), iv)
+        # use a hex encoding to match the JS client library limitation
+        key = hashlib.sha256(keyCore.encode('hex')).digest()
+        aes = EVP.Cipher(alg='aes_256_ecb', 
+                    key=key,
+                    iv=iv,
+                    op=1) # encode=1, decode=0
+        inBuf = cStringIO.StringIO(plaintext)
+        outBuff = cStringIO.StringIO()
+        while 1:
+            buf = inBuf.read()
+            if not buf:
+                break
+            outBuff.write(aes.update(buf))
+        outBuff.write(aes.final())
+        cblock = outBuff.getvalue()
+        """
+        sys.stderr.write("     iv:%s\n    key: %s\n  Block: %s\n" % 
+                (binascii.b2a_hex(iv),
+                    binascii.b2a_hex(key), 
+                    binascii.b2a_hex(cblock)));
+        """
+        result['cipherText'] = binascii.b2a_base64(cblock).replace('\n', '')
         # Generate the hmac as a hex version of the sha256 of the keyBundle's
         # HMAC, the b64 encoded cipherText we just generated, and the
         # keyBundle's source URL.
-        result['hmac'] = hashlib.sha256("%s%s%s" % (self.keyBundle['hmac'],
-            result['cipherText'], self.keyBundle['url'])).hexdigest()
+        result['hmac'] = hashlib.sha256("%s%s%s" % (keyBundle['hmac'],
+            result['cipherText'], keyBundle['url'])).hexdigest()
         # And return that base structure. This is the "cryptoBlock"
         # inclusion to the POST data sent to the Notification URL.
         return result
@@ -136,16 +156,32 @@ class FNCrypto (object):
             cryptBlock['cipherText'], keyBundle['url'])).hexdigest()
         if localHmac != cryptBlock['hmac']:
             raise FNCryptoException('Invalid HMAC')
-        clearText = aes.AES(key=hashlib.sha256('%s%s' % (
-            keyBundle['encryptionKey'].decode('hex'),
-            base64.b64decode(cryptBlock['iv']))
-            ).digest()).process(base64.b64decode(cryptBlock['cipherText']))
+        iv = binascii.a2b_base64(cryptBlock['iv'])
+        keyCore = '%s%s' % (keyBundle['encryptionKey'].decode('hex'),
+                iv)
+        key = hashlib.sha256(keyCore.encode('hex')).digest()
+        aes = EVP.Cipher(alg='aes_256_ecb',
+                key=key,
+                iv=iv,
+                op=0) # encode=1, decode=0
+        inBuf = cStringIO.StringIO(
+                binascii.a2b_base64(cryptBlock['cipherText']))
+        outBuff = cStringIO.StringIO()
+        while 1:
+            buf = inBuf.read()
+            if not buf:
+                break;
+            outBuff.write(aes.update(buf))
+        outBuff.write(aes.final())
+        clearText = outBuff.getvalue()
+        #clearText = aes.AES(key=key).process(
+        #        binascii.a2b_base64(cryptBlock['cipherText']))
         return clearText
 
 
 if __name__ == '__main__':
     crypto = FNCrypto()
-    testPhrase = 'This is a test'
+    testPhrase = 'This is a test of the emergency broadcasting network.'
     # The key bundle normally comes from the client.
     # Generate a fake one for this test
     kb = crypto.generateKeyBundle()

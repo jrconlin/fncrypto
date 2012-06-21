@@ -19,7 +19,8 @@ Python - /fncrypto
         encryptedBlock = fncrypto.encrypt(plainText, keyBundle)
         plainText = fncrypto.decrypt(encryptedBlock, keyBundle)
 
-Perl - TBD
+Perl - /otherLanguages/perl
+        in process
 
 PHP - TBD
 
