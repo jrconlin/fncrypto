@@ -90,7 +90,7 @@
             if (keyBundle != undefined) {
                 return keyBundle
             }
-            var info = self._myAppName + "-AES_256_CBC-HMAC256" + url;
+            var info = self._myAppName + "-AES_256_EBC-HMAC256" + url;
             var urlKey = self._newURLKey();
             var encryptionKey = sjcl.codec.hex.fromBits(sjcl.hash.sha256.hash(urlKey + info + "\x01"));
             var keyBundle = {'url': url,

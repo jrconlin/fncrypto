@@ -26,7 +26,7 @@ class FNCrypto (object):
     # While not strictly necessary, you may want to change this value. This
     # will alter the HMAC_INPUT seed value.
     appName = 'fnCrypto'
-    HMAC_INPUT = appName + "-AES_256_CBC-HMAC256"
+    HMAC_INPUT = appName + "-AES_256_ECB-HMAC256"
     bitSize = 256
     keyBundle = None
 
@@ -114,10 +114,10 @@ class FNCrypto (object):
                 keyBundle['encryptionKey'].decode('hex'), iv)
         # use a hex encoding to match the JS client library limitation
         key = hashlib.sha256(keyCore.encode('hex')).digest()
-        aes = EVP.Cipher(alg='aes_256_ecb', 
+        aes = EVP.Cipher(alg='aes_256_ecb',
                     key=key,
                     iv=iv,
-                    op=1) # encode=1, decode=0
+                    op=1)  # encode=1, decode=0
         inBuf = cStringIO.StringIO(plaintext)
         outBuff = cStringIO.StringIO()
         while 1:
@@ -128,9 +128,9 @@ class FNCrypto (object):
         outBuff.write(aes.final())
         cblock = outBuff.getvalue()
         """
-        sys.stderr.write("     iv:%s\n    key: %s\n  Block: %s\n" % 
+        sys.stderr.write("     iv:%s\n    key: %s\n  Block: %s\n" %
                 (binascii.b2a_hex(iv),
-                    binascii.b2a_hex(key), 
+                    binascii.b2a_hex(key),
                     binascii.b2a_hex(cblock)));
         """
         result['cipherText'] = binascii.b2a_base64(cblock).replace('\n', '')
@@ -163,14 +163,14 @@ class FNCrypto (object):
         aes = EVP.Cipher(alg='aes_256_ecb',
                 key=key,
                 iv=iv,
-                op=0) # encode=1, decode=0
+                op=0)  # encode=1, decode=0
         inBuf = cStringIO.StringIO(
                 binascii.a2b_base64(cryptBlock['cipherText']))
         outBuff = cStringIO.StringIO()
         while 1:
             buf = inBuf.read()
             if not buf:
-                break;
+                break
             outBuff.write(aes.update(buf))
         outBuff.write(aes.final())
         clearText = outBuff.getvalue()

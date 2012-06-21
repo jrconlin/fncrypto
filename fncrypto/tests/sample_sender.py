@@ -3,9 +3,9 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 # This file sends a sample notification to the client. It's useful for
-# demonstration, verification and testing, but that's about it. 
+# demonstration, verification and testing, but that's about it.
 # If you find this sort of thing useful, let me know and I'll build
-# a better demo. 
+# a better demo.
 from fncrypto.crypto import FNCrypto
 import json
 import os
@@ -13,31 +13,32 @@ import time
 import pycurl
 import cStringIO
 
-# A file containing the credentials from the client. 
+# A file containing the credentials from the client.
 # for testing, I just copied these from
 # $UserProfile/jetpack/push@jbalogh.me/simple-storage/store.json
 # need "{url: ... , encryptionKey: ..., hmac: ...}"
 credFile = './credentials.json'
 crypto = FNCrypto
 
-# No credentials, so build a set. (Note, these have to be on 
+# No credentials, so build a set. (Note, these have to be on
 # the client before it can properly decrypt notifications.)
 if (not os.path.isfile(credFile)):
     cfile = open(credFile, 'w')
     cfile.write(json.dumps(crypto.generateKeyBundle()))
-    cfile.close();
+    cfile.close()
 cfile = open(credFile, 'r')
 creds = json.loads(' '.join(cfile.readlines()))
 
 # The encrypted content:
 testPhrase = json.dumps({'title': 'python test succeeded',
-    'body': 'This is a test of the emergency broadcasting service, this is only a test',
+    'body': 'This is a test of the emergency broadcasting'
+        ' service, this is only a test',
     'actionUrl': 'http://example.com'})
 cryptoBlock = crypto.encrypt(testPhrase, creds)
 
 # The unencrypted wrapper:
 sendData = json.dumps({'title': 'python test',
-    'body':'test failed',
+    'body': 'test failed',
     'time': int(time.time()),
     'cryptoBlock': json.dumps(cryptoBlock)})
 
