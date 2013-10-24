@@ -1,5 +1,7 @@
-fnCrypto
----
+=fnCrypto
+
+(This is abandonware. The spec changed, and this module is no longer required. It's still here for historical 
+and educational purposes.)
 
 Firefox Notifications crypto support
 
